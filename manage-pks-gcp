@@ -93,7 +93,7 @@ function enable_access {
   done < "$MASTERS"
 
   PKS_CLUSTER_NETWORK=$(basename $(head -1 $MASTERS | cut -d',' -f3))
-  FW_RULE=$CLUSTER_NAME-fw-master-access-$CLUSTER_UUID
+  FW_RULE=$CLUSTER_NAME-fw-$CLUSTER_UUID
 
   if ! [[ "$(gcloud compute firewall-rules list --filter="name=$FW_RULE" --format="value(name)")" == "" ]]; then
     echo -e "\nFirewall rule $FW_RULE already exists..."
@@ -130,7 +130,7 @@ function gcp_cleanup {
   CLUSTER_UUID=$(pks cluster $CLUSTER_NAME --json | jq -r .uuid)
 
   echo "Deleting firewall rule"
-  gcloud compute firewall-rules delete $CLUSTER_NAME-fw-master-access-$CLUSTER_UUID --quiet
+  gcloud compute firewall-rules delete $CLUSTER_NAME-fw-$CLUSTER_UUID --quiet
 
   echo "Deleting forwarding rule"
   gcloud compute forwarding-rules delete pks-$CLUSTER_NAME-forwarding-rule --region=$CLUSTER_REGION --quiet
