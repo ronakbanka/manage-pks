@@ -13,13 +13,13 @@ Automate Load balancer configuration & PKS cluster access on GCP.
 ## Before you begin
 You need:
 
-* [PKS cli](https://docs.pivotal.io/runtimes/pks/1-1/installing-pks-cli.html)
+* [PKS cli](https://docs.pivotal.io/runtimes/pks/1-3/installing-pks-cli.html)
 * [GCP sdk client](https://cloud.google.com/sdk/downloads)
 * [jq](https://stedolan.github.io/jq/download/)
 
 ### Instructions
 
-1. Start by configuring PKS API access, please find detailed docs [here](https://docs.pivotal.io/runtimes/pks/1-1/configure-api.html).
+1. Start by configuring PKS API access, please find detailed docs [here](https://docs.pivotal.io/runtimes/pks/1-3/configure-api.html).
   ```
   pks login -a PKS-API --client-name CLIENT-NAME --client-secret CLIENT-SECRET -k
   ```
@@ -29,7 +29,7 @@ You need:
   ```
   $ gcloud auth login
   ```
-3. Configure GCP compute region, same as [AZ configuration](https://docs.pivotal.io/runtimes/pks/1-1/gcp-om-config.html#az) for PKS tile
+3. Configure GCP compute region, same as [AZ configuration](https://docs.pivotal.io/runtimes/pks/1-3/gcp-om-config.html#az) for PKS tile
   ```
   gcloud config set compute/region $GCP_REGION
   ```
