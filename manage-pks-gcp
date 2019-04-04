@@ -130,7 +130,7 @@ function gcp_cleanup {
   CLUSTER_UUID=$(pks cluster $CLUSTER_NAME --json | jq -r .uuid)
 
   echo "Deleting firewall rule"
-  gcloud compute firewall-rules delete $CLUSTER_NAME-fw-master-access-$CLUSTER_UUID --quiet
+  gcloud compute firewall-rules delete $CLUSTER_NAME-fw-master-access --quiet
 
   echo "Deleting forwarding rule"
   gcloud compute forwarding-rules delete pks-$CLUSTER_NAME-forwarding-rule --region=$CLUSTER_REGION --quiet
