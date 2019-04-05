@@ -128,6 +128,7 @@ function gcp_cleanup {
   LB_NAME="$CLUSTER_NAME-lb"
   CLUSTER_REGION=$(gcloud config list --format="value(compute.region)")
   CLUSTER_UUID=$(pks cluster $CLUSTER_NAME --json | jq -r .uuid)
+  CLUSTER_IP=$(gcloud compute addresses describe $LB_NAME --region=$CLUSTER_REGION --format="value(address)")
 
   echo "Deleting firewall rule"
   gcloud compute firewall-rules delete $CLUSTER_NAME-fw-master-access --quiet
@@ -137,6 +138,9 @@ function gcp_cleanup {
 
   echo "Deleting target pool/lb"
   gcloud compute target-pools delete $LB_NAME --quiet
+
+  echo "Releasing public IP"
+  gcloud compute addresses delete $LB_NAME --region=$CLUSTER_REGION --quiet
 }
 
 operation=$1
