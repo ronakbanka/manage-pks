@@ -122,13 +122,13 @@ function enable_access {
   --change-batch $CHANGE_BATCH | jq -r '.ChangeInfo.Id' | cut -d'/' -f3)
 
   echo -e "\n${green}Record change submitted! Change Id: $CHANGE_ID ${reset}"
-  echo -e "\n${green}Waiting for ROUTE changes to be propogated${reset}"
+  echo -e "\n${green}Waiting for ROUTE changes to be propagated${reset}"
   until [[ $(get_change_status $CHANGE_ID) == "INSYNC" ]]; do
 		 	echo -n "."
 		 	sleep 5
 	done
 
-  echo -e "\nYour record change has now propogated."
+  echo -e "\nYour record change has now propagated."
 
   echo -e "\n${green}Waiting for DNS resolution to go through${reset}"
   until [[ $(dig @8.8.8.8 $DNS_ROUTE A +short) != "" ]]; do
