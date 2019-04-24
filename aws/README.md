@@ -3,7 +3,7 @@
 Automate Load balancer configuration & PKS cluster access on AWS.
 
 ## Demo
-![](images/manage-pks-aws.gif)
+![](../images/manage-pks-aws.gif)
 
 ## What these scripts are not meant for (YET) !
 * Automate PKS deployment on AWS
