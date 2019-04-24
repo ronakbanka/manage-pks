@@ -1,0 +1,207 @@
+#!/bin/bash
+
+set -e
+shopt -s expand_aliases
+
+red=`tput setaf 1`
+green=`tput setaf 2`
+reset=`tput sgr0`
+
+
+if ! [ -x "$(command -v jq)" ]; then
+  echo -e "\n${red}Error: jq is not installed.${reset}" >&2
+  exit 1
+fi
+
+if ! [ -x "$(command -v pks)" ]; then
+  echo -e "\n${red}Error: pks cli is not installed.${reset}" >&2
+  exit 1
+fi
+
+if ! [ -x "$(command -v aws)" ]; then
+  echo -e "\n${red}Error: aws cli is not installed.${reset}" >&2
+  exit 1
+fi
+
+if ! [ -f "${HOME}/.pks/creds.yml" ]; then
+  echo -e "\n${red}Error: Login to PKS API before proceeding${reset}" >&2
+  exit 1
+fi
+
+CLUSTER_REGION=$(aws configure get region)
+if [[ "$CLUSTER_REGION" == "" ]]; then
+  echo -e "\n${red}Error: Configure AWS region, check step 3 on Instructions!!${reset}" >&2
+  exit 1
+fi
+
+if [ -z "$ENV_NAME" ] || [ -z "$ROUTE_53_ZONE_ID" ]; then
+  echo -e "\n${red}Error: Configure ENV variables, follow step 4${reset}" >&2
+  exit 1
+fi
+
+function get_change_status() {
+	aws route53 get-change --id $1 | jq -r '.ChangeInfo.Status'
+}
+
+#Function to create cluster using Route53 DNS resolution
+function provision_cluster {
+  echo -e "\n${green}Enter pks cluster name to be created and press [ENTER]:${reset}"
+  read CLUSTER_NAME
+
+  echo -e "\n${green}Listing pks plans...${reset}"
+  pks list-plans
+
+  echo -e "\n${green}Enter pks plan to be provisioned, choose plan from above list and press [ENTER]:${reset}"
+  read CLUSTER_PLAN
+
+  echo -e "\n${green}Fetching domain from provided hosted zone${reset}"
+  DOMAIN=$(aws route53 get-hosted-zone --id $ROUTE_53_ZONE_ID | jq -r .HostedZone.Name)
+
+  DNS_ROUTE="$CLUSTER_NAME-k8s.$DOMAIN"
+
+  echo -e "\n${green}Creating PKS cluster $CLUSTER_NAME with external hostname $DNS_ROUTE ${reset}"
+  pks create-cluster $CLUSTER_NAME --external-hostname $DNS_ROUTE -p $CLUSTER_PLAN
+}
+
+#Function to enable access to pks cluster on AWS
+function enable_access {
+  echo -e "\n${green}Listing available clusters...${reset}"
+  pks clusters
+
+  echo -e "\n${green}Enter pks cluster name from above list & press [ENTER]:${reset}"
+  read CLUSTER_NAME
+
+  DOMAIN=$(aws route53 get-hosted-zone --id $ROUTE_53_ZONE_ID | jq -r .HostedZone.Name)
+  DNS_ROUTE="$CLUSTER_NAME-k8s.$DOMAIN"
+
+  echo -e "\n${green}Getting master nodes for pks cluster $CLUSTER_NAME ${reset}"
+
+  CLUSTER_UUID=$(pks cluster $CLUSTER_NAME --json | jq -r .uuid)
+  export BOSH_DEPLOYMENT_NAME=service-instance_$CLUSTER_UUID
+
+  MASTERS=$(mktemp /tmp/master-$CLUSTER_UUID.XXXX)
+  SUBNETS=$(mktemp /tmp/subnets-$CLUSTER_UUID.XXXX)
+
+  echo -e "\n${green}Fetching master vms from pks cluster $CLUSTER_NAME ${reset}"
+  aws ec2 describe-instances --filters "Name=tag:deployment,Values=service-instance_$CLUSTER_UUID" \
+  "Name=tag:instance_group,Values=master" --query "Reservations[].Instances[].[VpcId,InstanceId]" --output text > $MASTERS
+
+  CLUSTER_VPC=$(basename $(head -1 $MASTERS | cut -d' ' -f1))
+  SECURITY_GROUP=$CLUSTER_NAME-master-access-sg
+  CLUSTER_LB_NAME=$CLUSTER_NAME-k8s-lb
+
+  echo -e "\n${green}Creating security group for k8s master access${reset}"
+  SECURITY_GROUP_ID=$(aws ec2 create-security-group \
+  --group-name $SECURITY_GROUP \
+  --description "$CLUSTER_NAME master lb security group" \
+  --vpc-id $CLUSTER_VPC | jq -r .GroupId)
+
+  echo -e "\n${green}Adding rules to the security group $SECURITY_GROUP ${reset}"
+  aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 8443 --cidr 0.0.0.0/0
+
+  echo -e "\n${green}Fetching public subnets from vpc $CLUSTER_VPC ${reset}"
+  subnets=( $(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$CLUSTER_VPC" \
+  "Name=tag:Name,Values=$ENV_NAME-public-subnet*" --query 'Subnets[*].[SubnetId]' --output text) )
+
+  echo -e "\n${green}Creating Load balancer for $CLUSTER_NAME pks cluster${reset}"
+  ELB_DNS=$(aws elb create-load-balancer --load-balancer-name $CLUSTER_LB_NAME \
+  --listeners "Protocol=TCP,LoadBalancerPort=8443,InstanceProtocol=TCP,InstancePort=8443" \
+  --subnets "${subnets[0]}" "${subnets[1]}" "${subnets[2]}" --security-groups $SECURITY_GROUP_ID | jq -r .DNSName)
+
+  IFS=$'\t'
+  while read -r vpc instance
+  do
+          echo -e "\n${green}Adding $instance to load balancer $CLUSTER_LB_NAME ${reset}"
+          aws elb register-instances-with-load-balancer --load-balancer-name $CLUSTER_LB_NAME --instances $instance
+
+  done < "$MASTERS"
+
+  LB_HOSTED_ZONE=$(aws elb describe-load-balancers --load-balancer-name $CLUSTER_LB_NAME \
+  | jq -r .LoadBalancerDescriptions[].CanonicalHostedZoneNameID)
+
+  CHANGE_BATCH=$(jq -c -n "{\"Changes\": [{\"Action\": \"CREATE\",\"ResourceRecordSet\": {\"Name\": \"$DNS_ROUTE\",\"Type\": \"A\",\"AliasTarget\": {\"EvaluateTargetHealth\": false,\"HostedZoneId\": \"$LB_HOSTED_ZONE\",\"DNSName\": \"dualstack.$ELB_DNS\"}}}]}")
+
+  echo -e "\n${green}Creating ELB A record in Hosted Zone${reset}"
+  CHANGE_ID=$(aws route53 change-resource-record-sets --hosted-zone-id $ROUTE_53_ZONE_ID \
+  --change-batch $CHANGE_BATCH | jq -r '.ChangeInfo.Id' | cut -d'/' -f3)
+
+  echo -e "\n${green}Record change submitted! Change Id: $CHANGE_ID ${reset}"
+  echo -e "\n${green}Waiting for ROUTE changes to be propogated${reset}"
+  until [[ $(get_change_status $CHANGE_ID) == "INSYNC" ]]; do
+		 	echo -n "."
+		 	sleep 5
+	done
+
+  echo -e "\nYour record change has now propogated."
+
+  echo -e "\n${green}Waiting for DNS resolution to go through${reset}"
+  until [[ $(dig @8.8.8.8 $DNS_ROUTE A +short) != "" ]]; do
+		 	echo -n "."
+		 	sleep 5
+	done
+
+
+  rm $MASTERS
+
+  echo -e "\n${green}Configuring kubectl for creds using pks get-credentials${reset}"
+  pks get-credentials $CLUSTER_NAME
+
+  echo -e "\n${green}PKS cluster $CLUSTER_NAME information${reset}"
+  kubectl cluster-info
+
+  echo -e "\n${green}Getting all pods across all namespaces...${reset}"
+  kubectl get pods --all-namespaces
+}
+
+function aws_cleanup {
+  echo -e "\n${green}Listing available clusters...${reset}"
+  pks clusters
+
+  echo -e "\n${green}Enter pks cluster name from above list & press [ENTER]:${reset}"
+  read CLUSTER_NAME
+
+  CLUSTER_LB_NAME=$CLUSTER_NAME-k8s-lb
+  DOMAIN=$(aws route53 get-hosted-zone --id $ROUTE_53_ZONE_ID | jq -r .HostedZone.Name)
+  DNS_ROUTE="$CLUSTER_NAME-k8s.$DOMAIN"
+  SECURITY_GROUP=$CLUSTER_NAME-master-access-sg
+
+  LB_HOSTED_ZONE=$(aws elb describe-load-balancers --load-balancer-name $CLUSTER_LB_NAME \
+  | jq -r .LoadBalancerDescriptions[].CanonicalHostedZoneNameID)
+
+  ELB_DNS=$(aws elb describe-load-balancers --load-balancer-name $CLUSTER_LB_NAME \
+  | jq -r .LoadBalancerDescriptions[].CanonicalHostedZoneName)
+
+  CHANGE_BATCH=$(jq -c -n "{\"Changes\": [{\"Action\": \"DELETE\",\"ResourceRecordSet\": {\"Name\": \"$DNS_ROUTE\",\"Type\": \"A\",\"AliasTarget\": {\"EvaluateTargetHealth\": false,\"HostedZoneId\": \"$LB_HOSTED_ZONE\",\"DNSName\": \"dualstack.$ELB_DNS\"}}}]}")
+
+  echo -e "\n${green}Deleting ELB A record in Hosted Zone${reset}"
+  aws route53 change-resource-record-sets --hosted-zone-id $ROUTE_53_ZONE_ID --change-batch $CHANGE_BATCH
+
+  echo -e "\n${green}Deleting load balancer $CLUSTER_LB_NAME & waiting for network interfaces deletion${reset}"
+  aws elb delete-load-balancer --load-balancer-name $CLUSTER_LB_NAME && sleep 120
+
+  echo -e "\n${green}Deleting security group${reset}"
+  SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
+  --filters Name=ip-permission.from-port,Values=8443 Name=ip-permission.to-port,Values=8443 Name=ip-permission.cidr,Values='0.0.0.0/0' Name=group-name,Values=$SECURITY_GROUP \
+  --query "SecurityGroups[*].{ID:GroupId}" --output text)
+
+  aws ec2 delete-security-group --group-id $SECURITY_GROUP_ID
+
+  echo -e "\n${green}AWS Cleanup complete, you can delete your cluster with: ${reset}${red}pks delete-cluster $CLUSTER_NAME ${reset}"
+}
+
+operation=$1
+
+case $operation in
+  provision)
+    provision_cluster
+    ;;
+  access)
+    enable_access
+    ;;
+  cleanup)
+    aws_cleanup
+    ;;
+  *)
+    echo $"Usage: $0 {provision|access|cleanup}"
+    exit 1
+esac
