@@ -1,0 +1,112 @@
+#!/bin/bash
+set -e
+shopt -s expand_aliases
+
+red=`tput setaf 1`
+green=`tput setaf 2`
+reset=`tput sgr0`
+
+function check_dep {
+  if ! [ -x "$(command -v om)" ]; then
+    echo -e "\n${red}Error: om cli is not installed${reset}" >&2
+    exit 1
+  fi
+
+  if ! [ -x "$(command -v uaac)" ]; then
+    echo -e "\n${red}Error: uaac cli is not installed${reset}" >&2
+    exit 1
+  fi
+
+  if ! [ -x "$(command -v jq)" ]; then
+    echo -e "\n${red}Error: JQ is not installed${reset}" >&2
+    exit 1
+  fi
+
+  if [ -z "$OPSMAN_TARGET" ] || [ -z "$OPSMAN_USERNAME" ] || [ -z "$OPSMAN_PASSWORD" ] || [ -z "$PKS_API" ]; then
+    echo -e "\n${red}Error: Configure ENV variables, follow step 1${reset}" >&2
+    exit 1
+  fi
+}
+
+alias om_cmd="om --target ${OPSMAN_TARGET} -u $OPSMAN_USERNAME -p $OPSMAN_PASSWORD -k"
+
+function configure_uaa_access {
+  check_dep #Check env variables
+
+  OPSMAN_CA_CERT=/tmp/opsman_ca_cert.pem
+
+  echo -e "\n${green}Fetching OpsMan Root CA cert...${reset}"
+  om_cmd curl -s -p "/api/v0/certificate_authorities" | jq -r .certificate_authorities[0].cert_pem > $OPSMAN_CA_CERT
+
+  if openssl x509 -checkend 86400 -noout -in $OPSMAN_CA_CERT
+  then
+    echo -e "\n${green}Certificate is good for another day!${reset}"
+  else
+    echo -e "\n${red}Certificate has expired or will do so within 24 hours!"
+    echo -e "(or is invalid/not found)${red}"
+  fi
+
+
+  echo -e "\n${green}Targeting PKS Api UAA...${reset}"
+  uaac target https://$PKS_API:8443 --ca-cert $OPSMAN_CA_CERT
+
+  echo -e "\n${green}Fetch PKS deployment name...${reset}"
+  om_cmd curl -s -p /api/v0/deployed/products > deployed_products.json
+  DEPLOYMENT_NAME=$(jq -r '.[] | select(.type == "pivotal-container-service") | .guid' "deployed_products.json")
+  export DEPLOYMENT_NAME
+
+  echo -e "\n${green}Fetch UAA admin client for PKS API...${reset}"
+  om_cmd curl -s -p /api/v0/deployed/products/${DEPLOYMENT_NAME}/credentials/.properties.pks_uaa_management_admin_client > pks_uaa_management.json
+  UAA_ADMIN_SECRET="$(jq -r .credential.value.secret pks_uaa_management.json)"
+
+  echo -e "\n${green}Requesting token from PKS API UAA server...${reset}"
+  uaac token client get admin -s $UAA_ADMIN_SECRET
+
+  rm deployed_products.json pks_uaa_management.json
+
+}
+
+function create-pks-user {
+  check_dep #Check env variables
+
+  echo -e "\n${green}Enter Username, followed by [ENTER]:${reset}"
+  read USERNAME
+  echo -e "\n${green}Enter Password, followed by [ENTER]:${reset}"
+  read PASSWORD
+  echo -e "\n${green}Enter Email, followed by [ENTER]:${reset}"
+  read EMAIL
+  echo -e "\n${green}Creating user $USERNAME...${reset}"
+  uaac user add $USERNAME --emails $EMAIL -p $PASSWORD && sleep 5
+
+  echo -e "\n${green}Granting PKS cluster admin & manage access to $USERNAME...${reset}"
+  uaac member add pks.clusters.admin $USERNAME && uaac member add pks.clusters.manage $USERNAME
+
+}
+
+function login-pks {
+  check_dep #Check env variables
+
+  echo -e "\n${green}Enter Username, followed by [ENTER]:${reset}"
+  read USERNAME
+  echo -e "\n${green}Enter Password, followed by [ENTER]:${reset}"
+  read PASSWORD
+
+  pks login -a $PKS_API:9021 -u $USERNAME -p $PASSWORD --ca-cert $OPSMAN_CA_CERT
+}
+
+operation=$1
+
+case $operation in
+  configure)
+    configure_uaa_access
+    ;;
+  create)
+    create-pks-user
+    ;;
+  login)
+    login-pks
+    ;;
+  *)
+    echo -e $"Usage: $0 {configure|create-user|login}"
+    exit 1
+esac
