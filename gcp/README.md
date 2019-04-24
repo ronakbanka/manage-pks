@@ -36,14 +36,14 @@ You need:
 
 4. Start by provisioning a new cluster, this step will reserve a IP on GCP & will issue create cluster command.
   ```
-  ./manage-pks-gcp provision
+  ./manage-pks provision
   ```
 
 5. It will take some time to provision cluster, **check status with `pks cluster cluster-name` before proceeding to next step.**
 
 6. Once cluster provision status is `succeeded`, enable access using
   ```
-  ./manage-pks-gcp access
+  ./manage-pks access
   ```
   and follow instructions. This step will:
   * Create load-balancer
@@ -54,6 +54,6 @@ You need:
 
 7. If you want to clean up GCP resources, loadbalancer, firewall-rule, forwarding-rule
   ```
-  ./manage-pks-gcp cleanup
+  ./manage-pks cleanup
   ```
   Above cleanup doesn't deletes the cluster itself, so use `pks delete-cluster cluster_name`.
