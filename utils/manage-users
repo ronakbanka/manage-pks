@@ -7,6 +7,7 @@ green=`tput setaf 2`
 reset=`tput sgr0`
 
 function check_dep {
+
   if ! [ -x "$(command -v om)" ]; then
     echo -e "\n${red}Error: om cli is not installed${reset}" >&2
     exit 1
@@ -85,6 +86,8 @@ function create-pks-user {
 
 function login-pks {
   check_dep #Check env variables
+
+  OPSMAN_CA_CERT=/tmp/opsman_ca_cert.pem
 
   echo -e "\n${green}Enter Username, followed by [ENTER]:${reset}"
   read USERNAME
