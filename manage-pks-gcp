@@ -141,6 +141,8 @@ function gcp_cleanup {
 
   echo "Releasing public IP"
   gcloud compute addresses delete $LB_NAME --region=$CLUSTER_REGION --quiet
+
+  echo -e "\n${green}GCP Cleanup complete, you can delete your cluster with: ${reset}${red}pks delete-cluster $CLUSTER_NAME ${reset}"
 }
 
 operation=$1
