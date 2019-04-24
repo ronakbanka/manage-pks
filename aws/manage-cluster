@@ -7,37 +7,29 @@ red=`tput setaf 1`
 green=`tput setaf 2`
 reset=`tput sgr0`
 
+function check_dep {
 
-if ! [ -x "$(command -v jq)" ]; then
-  echo -e "\n${red}Error: jq is not installed.${reset}" >&2
-  exit 1
-fi
+  if ! [ -x "$(command -v jq)" ] || ! [ -x "$(command -v aws)" ]; then
+    echo -e "\n${red}Error: Required CLIs are not installed, check Instructions${reset}" >&2
+    exit 1
+  fi
 
-if ! [ -x "$(command -v pks)" ]; then
-  echo -e "\n${red}Error: pks cli is not installed.${reset}" >&2
-  exit 1
-fi
+  if ! [ -f "${HOME}/.pks/creds.yml" ]; then
+    echo -e "\n${red}Error: Login to PKS API before proceeding${reset}" >&2
+    exit 1
+  fi
 
-if ! [ -x "$(command -v aws)" ]; then
-  echo -e "\n${red}Error: aws cli is not installed.${reset}" >&2
-  exit 1
-fi
+  CLUSTER_REGION=$(aws configure get region)
+  if [[ "$CLUSTER_REGION" == "" ]]; then
+    echo -e "\n${red}Error: Configure AWS region, check step 3 on Instructions!!${reset}" >&2
+    exit 1
+  fi
 
-if ! [ -f "${HOME}/.pks/creds.yml" ]; then
-  echo -e "\n${red}Error: Login to PKS API before proceeding${reset}" >&2
-  exit 1
-fi
-
-CLUSTER_REGION=$(aws configure get region)
-if [[ "$CLUSTER_REGION" == "" ]]; then
-  echo -e "\n${red}Error: Configure AWS region, check step 3 on Instructions!!${reset}" >&2
-  exit 1
-fi
-
-if [ -z "$ENV_NAME" ] || [ -z "$ROUTE_53_ZONE_ID" ]; then
-  echo -e "\n${red}Error: Configure ENV variables, follow step 4${reset}" >&2
-  exit 1
-fi
+  if [ -z "$ENV_NAME" ] || [ -z "$ROUTE_53_ZONE_ID" ]; then
+    echo -e "\n${red}Error: Configure ENV variables, follow step 4${reset}" >&2
+    exit 1
+  fi
+}
 
 function get_change_status() {
 	aws route53 get-change --id $1 | jq -r '.ChangeInfo.Status'
@@ -45,6 +37,8 @@ function get_change_status() {
 
 #Function to create cluster using Route53 DNS resolution
 function provision_cluster {
+  check_dep #Check env variables
+
   echo -e "\n${green}Enter pks cluster name to be created and press [ENTER]:${reset}"
   read CLUSTER_NAME
 
@@ -65,6 +59,8 @@ function provision_cluster {
 
 #Function to enable access to pks cluster on AWS
 function enable_access {
+  check_dep #Check env variables
+
   echo -e "\n${green}Listing available clusters...${reset}"
   pks clusters
 
@@ -154,6 +150,8 @@ function enable_access {
 }
 
 function aws_cleanup {
+  check_dep #Check env variables
+
   echo -e "\n${green}Listing available clusters...${reset}"
   pks clusters
 

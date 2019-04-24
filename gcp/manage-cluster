@@ -1,25 +1,35 @@
 #!/bin/bash
 
 set -e
+shopt -s expand_aliases
 
-if ! [ -x "$(command -v jq)" ]; then
-  echo 'Error: jq is not installed.' >&2
-  exit 1
-fi
+red=`tput setaf 1`
+green=`tput setaf 2`
+reset=`tput sgr0`
 
-if ! [ -f "${HOME}/.pks/creds.yml" ]; then
-  echo "ERROR: Login to PKS API before proceeding" >&2
-  exit 1
-fi
+function check_dep {
 
-CLUSTER_REGION=$(gcloud config list --format="value(compute.region)")
-if [[ "$CLUSTER_REGION" == "" ]]; then
-  echo "Error: Configure GCP region, check step 3 on Instructions!!" >&2
-  exit 1
-fi
+  if ! [ -x "$(command -v jq)" ]; then
+    echo 'Error: jq is not installed.' >&2
+    exit 1
+  fi
+
+  if ! [ -f "${HOME}/.pks/creds.yml" ]; then
+    echo "ERROR: Login to PKS API before proceeding" >&2
+    exit 1
+  fi
+
+  CLUSTER_REGION=$(gcloud config list --format="value(compute.region)")
+  if [[ "$CLUSTER_REGION" == "" ]]; then
+    echo "Error: Configure GCP region, check step 3 on Instructions!!" >&2
+    exit 1
+  fi
+}
 
 #Function to reserve IP on GCP & create cluster
 function provision_cluster {
+  check_dep #Check env variables
+
   echo -e "\nEnter pks cluster name to be created and press [ENTER]: "
   read CLUSTER_NAME
 
@@ -41,6 +51,8 @@ function provision_cluster {
 
 #Function to enable access to pks cluster on gcp
 function enable_access {
+  check_dep #Check env variables
+
   echo -e "Listing available clusters..."
   pks clusters
 
@@ -119,6 +131,8 @@ function enable_access {
 }
 
 function gcp_cleanup {
+  check_dep #Check env variables
+  
   echo -e "Listing available clusters..."
   pks clusters
 
