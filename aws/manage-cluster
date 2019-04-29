@@ -86,23 +86,42 @@ function enable_access {
   SECURITY_GROUP=$CLUSTER_NAME-master-access-sg
   CLUSTER_LB_NAME=$CLUSTER_NAME-k8s-lb
 
-  echo -e "\n${green}Creating security group for k8s master access${reset}"
-  SECURITY_GROUP_ID=$(aws ec2 create-security-group \
-  --group-name $SECURITY_GROUP \
-  --description "$CLUSTER_NAME master lb security group" \
-  --vpc-id $CLUSTER_VPC | jq -r .GroupId)
+  SEC_GROUP=$(aws ec2 describe-security-groups \
+  --filters Name=ip-permission.from-port,Values=8443 Name=ip-permission.to-port,Values=8443 Name=ip-permission.cidr,Values='0.0.0.0/0' Name=group-name,Values=$SECURITY_GROUP \
+  --query "SecurityGroups[*].{ID:GroupId}" --output text)
 
-  echo -e "\n${green}Adding rules to the security group $SECURITY_GROUP ${reset}"
-  aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 8443 --cidr 0.0.0.0/0
+  if [[ $SEC_GROUP == "" ]]; then
+    echo -e "\n${green}Creating security group for k8s master access${reset}"
+    SECURITY_GROUP_ID=$(aws ec2 create-security-group \
+    --group-name $SECURITY_GROUP \
+    --description "$CLUSTER_NAME master lb security group" \
+    --vpc-id $CLUSTER_VPC | jq -r .GroupId)
+
+    echo -e "\n${green}Adding rules to the security group $SECURITY_GROUP ${reset}"
+    aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 8443 --cidr 0.0.0.0/0
+  fi
 
   echo -e "\n${green}Fetching public subnets from vpc $CLUSTER_VPC ${reset}"
   subnets=( $(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$CLUSTER_VPC" \
   "Name=tag:Name,Values=$ENV_NAME-public-subnet*" --query 'Subnets[*].[SubnetId]' --output text) )
 
-  echo -e "\n${green}Creating Load balancer for $CLUSTER_NAME pks cluster${reset}"
-  ELB_DNS=$(aws elb create-load-balancer --load-balancer-name $CLUSTER_LB_NAME \
-  --listeners "Protocol=TCP,LoadBalancerPort=8443,InstanceProtocol=TCP,InstancePort=8443" \
-  --subnets "${subnets[0]}" "${subnets[1]}" "${subnets[2]}" --security-groups $SECURITY_GROUP_ID | jq -r .DNSName)
+  echo -e "\n${green}Adding kubernetes tags to public subnets for LoadBalancer type service"
+  for subnet in "${subnets[@]}"
+  do
+    aws ec2 create-tags --resources "$subnet" --tags Key="kubernetes.io/cluster/service-instance_$CLUSTER_UUID",Value="shared"
+  done
+
+  LB_CHECK=$(aws elb describe-load-balancers --output json \
+  | jq -r --arg CLUSTER_LB $CLUSTER_LB_NAME '.LoadBalancerDescriptions[] | select(.LoadBalancerName==$CLUSTER_LB) | .LoadBalancerName')
+
+  if [[ $LB_CHECK == "" ]]; then
+    echo -e "\n${green}Creating Load balancer for $CLUSTER_NAME pks cluster${reset}"
+    ELB_DNS=$(aws elb create-load-balancer --load-balancer-name $CLUSTER_LB_NAME \
+    --listeners "Protocol=TCP,LoadBalancerPort=8443,InstanceProtocol=TCP,InstancePort=8443" \
+    --subnets "${subnets[0]}" "${subnets[1]}" "${subnets[2]}" --security-groups $SECURITY_GROUP_ID | jq -r .DNSName)
+  else
+    echo -e "\n${green}Load balancer $CLUSTER_LB_NAME already exists${reset}"
+  fi
 
   IFS=$'\t'
   while read -r vpc instance
@@ -112,30 +131,36 @@ function enable_access {
 
   done < "$MASTERS"
 
-  LB_HOSTED_ZONE=$(aws elb describe-load-balancers --load-balancer-name $CLUSTER_LB_NAME \
-  | jq -r .LoadBalancerDescriptions[].CanonicalHostedZoneNameID)
+  ROUTE_CHECK=$(aws route53 list-resource-record-sets --hosted-zone-id $ROUTE_53_ZONE_ID \
+  --query "ResourceRecordSets[?Name == '$DNS_ROUTE']" --output json | jq -r .[].Name)
 
-  CHANGE_BATCH=$(jq -c -n "{\"Changes\": [{\"Action\": \"CREATE\",\"ResourceRecordSet\": {\"Name\": \"$DNS_ROUTE\",\"Type\": \"A\",\"AliasTarget\": {\"EvaluateTargetHealth\": false,\"HostedZoneId\": \"$LB_HOSTED_ZONE\",\"DNSName\": \"dualstack.$ELB_DNS\"}}}]}")
+  if [[ $ROUTE_CHECK == "" ]]; then
+    LB_HOSTED_ZONE=$(aws elb describe-load-balancers --load-balancer-name $CLUSTER_LB_NAME \
+    | jq -r .LoadBalancerDescriptions[].CanonicalHostedZoneNameID)
 
-  echo -e "\n${green}Creating ELB A record in Hosted Zone${reset}"
-  CHANGE_ID=$(aws route53 change-resource-record-sets --hosted-zone-id $ROUTE_53_ZONE_ID \
-  --change-batch $CHANGE_BATCH | jq -r '.ChangeInfo.Id' | cut -d'/' -f3)
+    CHANGE_BATCH=$(jq -c -n "{\"Changes\": [{\"Action\": \"CREATE\",\"ResourceRecordSet\": {\"Name\": \"$DNS_ROUTE\",\"Type\": \"A\",\"AliasTarget\": {\"EvaluateTargetHealth\": false,\"HostedZoneId\": \"$LB_HOSTED_ZONE\",\"DNSName\": \"dualstack.$ELB_DNS\"}}}]}")
 
-  echo -e "\n${green}Record change submitted! Change Id: $CHANGE_ID ${reset}"
-  echo -e "\n${green}Waiting for ROUTE changes to be propagated${reset}"
-  until [[ $(get_change_status $CHANGE_ID) == "INSYNC" ]]; do
-		 	echo -n "."
-		 	sleep 5
-	done
+    echo -e "\n${green}Creating ELB A record in Hosted Zone${reset}"
+    CHANGE_ID=$(aws route53 change-resource-record-sets --hosted-zone-id $ROUTE_53_ZONE_ID \
+    --change-batch $CHANGE_BATCH | jq -r '.ChangeInfo.Id' | cut -d'/' -f3)
 
-  echo -e "\nYour record change has now propagated."
+    echo -e "\n${green}Record change submitted! Change Id: $CHANGE_ID ${reset}"
+    echo -e "\n${green}Waiting for ROUTE changes to be propagated${reset}"
+    until [[ $(get_change_status $CHANGE_ID) == "INSYNC" ]]; do
+  		 	echo -n "."
+  		 	sleep 5
+  	done
 
-  echo -e "\n${green}Waiting for DNS resolution to go through${reset}"
-  until [[ $(dig @8.8.8.8 $DNS_ROUTE A +short) != "" ]]; do
-		 	echo -n "."
-		 	sleep 5
-	done
+    echo -e "\nYour record change has now propagated."
 
+    echo -e "\n${green}Waiting for DNS resolution to go through${reset}"
+    until [[ $(dig @8.8.8.8 $DNS_ROUTE A +short) != "" ]]; do
+  		 	echo -n "."
+  		 	sleep 5
+  	done
+  else
+    echo -e "\n${green}Route already exists in Hosted Zone${reset}"
+  fi
 
   rm $MASTERS
 
@@ -175,7 +200,7 @@ function aws_cleanup {
   aws route53 change-resource-record-sets --hosted-zone-id $ROUTE_53_ZONE_ID --change-batch $CHANGE_BATCH
 
   echo -e "\n${green}Deleting load balancer $CLUSTER_LB_NAME & waiting for network interfaces deletion${reset}"
-  aws elb delete-load-balancer --load-balancer-name $CLUSTER_LB_NAME && sleep 120
+  aws elb delete-load-balancer --load-balancer-name $CLUSTER_LB_NAME && sleep 60
 
   echo -e "\n${green}Deleting security group${reset}"
   SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
