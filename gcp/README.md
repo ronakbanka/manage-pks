@@ -19,6 +19,7 @@ You need:
 
 ## PKS tile plan configuration
 Enable PodSecuritypolicy Admission plugin in your PKS plan
+
 ![](../images/pks-enable-psp.png)
 
 ### Instructions
