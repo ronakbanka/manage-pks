@@ -17,6 +17,10 @@ You need:
 * [GCP sdk client](https://cloud.google.com/sdk/downloads)
 * [jq](https://stedolan.github.io/jq/download/)
 
+## PKS tile plan configuration
+Enable PodSecuritypolicy Admission plugin in your PKS plan
+![](../images/pks-enable-psp.png)
+
 ### Instructions
 
 1. Start by configuring PKS API access, please find detailed docs [here](https://docs.pivotal.io/runtimes/pks/1-3/configure-api.html).
