@@ -13,6 +13,7 @@ Automate Load balancer configuration & PKS cluster access on GCP & AWS.
 * [gcp/manage-cluster](gcp/manage-cluster) Automate PKS cluster deployment and lb configuration on GCP
 * [aws/manage-cluster](aws/manage-cluster) Automate PKS cluster deployment and lb configuration on AWS
 * [utils/manage-users](utils/manage-users) Handle Uaac configuration & PKS user creation
+* [utils/istio](utils/istio.sh) Handle Istio deployment along with utility for Istio control plane upgrade and sidecar upgrade
 
 ### Instructions
 Follow individual README for AWS & GCP to use the scripts.
