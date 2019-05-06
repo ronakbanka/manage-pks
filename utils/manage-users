@@ -110,6 +110,6 @@ case $operation in
     login-pks
     ;;
   *)
-    echo -e $"Usage: $0 {configure|create-user|login}"
+    echo -e $"Usage: $0 {configure|create|login}"
     exit 1
 esac
