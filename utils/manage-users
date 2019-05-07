@@ -49,7 +49,7 @@ function configure_uaa_access {
 
 
   echo -e "\n${green}Targeting PKS Api UAA...${reset}"
-  uaac target https://$PKS_API:8443 --ca-cert $OPSMAN_CA_CERT
+  uaac target https://$PKS_API:8443 --ca-cert $OPSMAN_CA_CERT --skip-ssl-validation
 
   echo -e "\n${green}Fetch PKS deployment name...${reset}"
   om_cmd curl -s -p /api/v0/deployed/products > deployed_products.json
