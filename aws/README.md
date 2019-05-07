@@ -47,7 +47,7 @@ Enable PodSecuritypolicy Admission plugin in your PKS plan
 
 4. Start by provisioning a new cluster, this step will invoke command to create new cluster .
   ```
-  ./manage-pks provision
+  ./manage-cluster provision
   ```
   and follow instructions. This step will:
   * Fetch the domain address from Route53 HostedZone
@@ -58,7 +58,7 @@ Enable PodSecuritypolicy Admission plugin in your PKS plan
 
 6. Once cluster provision status is `succeeded`, enable access using
   ```
-  ./manage-pks access
+  ./manage-cluster access
   ```
   and follow instructions. This step will:
   * Fetch the master instances Ids
@@ -71,6 +71,6 @@ Enable PodSecuritypolicy Admission plugin in your PKS plan
 
 7. If you want to clean up AWS resources, Load balancer, security-group, A record in Hosted Zone
   ```
-  ./manage-pks cleanup
+  ./manage-cluster cleanup
   ```
   Above cleanup doesn't deletes the cluster itself, use `pks delete-cluster cluster_name`.

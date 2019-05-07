@@ -41,14 +41,14 @@ Enable PodSecuritypolicy Admission plugin in your PKS plan
 
 4. Start by provisioning a new cluster, this step will reserve a IP on GCP & will issue create cluster command.
   ```
-  ./manage-pks provision
+  ./manage-cluster provision
   ```
 
 5. It will take some time to provision cluster, **check status with `pks cluster cluster-name` before proceeding to next step.**
 
 6. Once cluster provision status is `succeeded`, enable access using
   ```
-  ./manage-pks access
+  ./manage-cluster access
   ```
   and follow instructions. This step will:
   * Create load-balancer
@@ -59,6 +59,6 @@ Enable PodSecuritypolicy Admission plugin in your PKS plan
 
 7. If you want to clean up GCP resources, loadbalancer, firewall-rule, forwarding-rule
   ```
-  ./manage-pks cleanup
+  ./manage-cluster cleanup
   ```
   Above cleanup doesn't deletes the cluster itself, so use `pks delete-cluster cluster_name`.
