@@ -22,9 +22,9 @@ You need:
 
 1.  Configure environment variables before using script
   ```
-  export OPSMAN_TARGET= Opsman Hostname
-  export OPSMAN_USERNAME=
-  export OPSMAN_PASSWORD=
+  export OM_TARGET= Opsman Hostname
+  export OM_USERNAME=
+  export OM_PASSWORD=
   export PKS_API= PKS API Hostname
   ```
 2. Start by configuring uaac access, this step will configure uaac client with PKI API uaac target
