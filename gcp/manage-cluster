@@ -37,16 +37,50 @@ function provision_cluster {
   pks list-plans
 
   echo -e "\nEnter pks plan to be provisioned, choose plan from above list and press [ENTER]: "
-  read CLUSTER_PLAN
+  read CLUSTER_PLAN  
+  
+  gcloud dns managed-zones list --format='table(name, dns_name)'
+  echo -e "\nSelect a managed zone (NAME): "
+  read managed_zone
+
+  zonedomain=$(gcloud dns record-sets list --zone ${managed_zone} --filter=Type=SOA --format='table[no-heading](name)' | sed 's/\.$//')
+  external_hostname=$CLUSTER_NAME-k8s.$zonedomain
+
+  echo -e "\nExternal hostname: $external_hostname"
+  
 
   LB_NAME="$CLUSTER_NAME-lb"
 
-  echo -n "Reserving public IP for cluster loadbalancer"
+  echo -e "Reserving public IP for cluster loadbalancer"
   gcloud compute addresses create $LB_NAME --region=$CLUSTER_REGION
   CLUSTER_IP=$(gcloud compute addresses describe $LB_NAME --region=$CLUSTER_REGION --format="value(address)")
 
-  echo -e "\nCreating PKS cluster $CLUSTER_NAME with external hostname $CLUSTER_IP.xip.io"
-  pks create-cluster $CLUSTER_NAME --external-hostname $CLUSTER_IP.xip.io -p $CLUSTER_PLAN
+  setup_dns_record $managed_zone $external_hostname $CLUSTER_IP
+
+  echo -e "\nCreating PKS cluster $CLUSTER_NAME with external hostname ${external_hostname}"
+  pks create-cluster $CLUSTER_NAME --external-hostname $external_hostname -p $CLUSTER_PLAN
+}
+
+
+function setup_dns_record {
+  [[ -e transaction.yaml ]] && rm transaction.yaml
+  managed_zone=$1
+  external_hostname=$2
+  new_ip=$3
+  function dns-txn {
+    op=$1; shift
+    gcloud dns record-sets transaction $op --zone=$managed_zone $*
+  }
+  read -r old_ip ttl type <<<$(gcloud dns record-sets list --zone=${managed_zone} --filter="name=${external_hostname}. AND type=A" --format='table[no-heading](DATA,ttl,type)')
+  dns-txn start
+
+  if [[ ! -z $old_ip ]] 
+  then
+      echo Removing exsting record $managed_zone/$external_hostname -\> $old_ip
+      dns-txn remove $old_ip --name=${external_hostname}. --type $type --ttl $ttl
+  fi
+  dns-txn add $new_ip --name=${external_hostname}. --ttl=300 --type=A
+  dns-txn execute
 }
 
 #Function to enable access to pks cluster on gcp
