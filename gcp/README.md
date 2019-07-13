@@ -51,6 +51,7 @@ Enable PodSecuritypolicy Admission plugin in your PKS plan
   ./manage-cluster access
   ```
   and follow instructions. This step will:
+  * Create Route in Cloud DNS for cluster api
   * Create load-balancer
   * Configure firewall-rule
   * Add master nodes to load-balancer based on tags
