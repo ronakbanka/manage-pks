@@ -85,14 +85,15 @@ function create-pks-user {
 function login-pks {
   check_dep #Check env variables
 
-  OPSMAN_CA_CERT=/tmp/opsman_ca_cert.pem
+  PKS_API_CA_CERT=/tmp/pks_api_ca_cert.pem
+  echo quit | openssl s_client -showcerts -connect $PKS_API:9021 </dev/null 2>/dev/null | openssl x509 -outform PEM > $PKS_API_CA_CERT
 
   echo -e "\n${green}Enter Username, followed by [ENTER]:${reset}"
   read USERNAME
   echo -e "\n${green}Enter Password, followed by [ENTER]:${reset}"
   read PASSWORD
 
-  pks login -a $PKS_API:9021 -u $USERNAME -p $PASSWORD --ca-cert $OPSMAN_CA_CERT
+  pks login -a $PKS_API:9021 -u $USERNAME -p $PASSWORD -k
 }
 
 operation=$1
