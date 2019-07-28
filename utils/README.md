@@ -15,7 +15,7 @@ You need:
 
 * [PKS cli](https://docs.pivotal.io/runtimes/pks/1-3/installing-pks-cli.html)
 * [OM cli](https://github.com/pivotal-cf/om#installation)
-* [uaac](https://github.com/cloudfoundry/cf-uaac#installation)
+* [uaa cli](https://github.com/cloudfoundry-incubator/uaa-cli/releases)
 * [jq](https://stedolan.github.io/jq/download/)
 
 ### Instructions to use `manage-users` script
