@@ -13,8 +13,8 @@ function check_dep {
     exit 1
   fi
 
-  if ! [ -x "$(command -v uaac)" ]; then
-    echo -e "\n${red}Error: uaac cli is not installed${reset}" >&2
+  if ! [ -x "$(command -v uaa)" ]; then
+    echo -e "\n${red}Error: uaa cli is not installed${reset}" >&2
     exit 1
   fi
 
@@ -43,11 +43,12 @@ function configure_uaa_access {
   else
     echo -e "\n${red}Certificate has expired or will do so within 24 hours!"
     echo -e "(or is invalid/not found)${red}"
+    exit 1
   fi
 
 
   echo -e "\n${green}Targeting PKS Api UAA...${reset}"
-  uaac target https://$PKS_API:8443 --ca-cert $OPSMAN_CA_CERT --skip-ssl-validation
+  uaa target https://$PKS_API:8443
 
   echo -e "\n${green}Fetch PKS deployment name...${reset}"
   om -k curl -s -p /api/v0/deployed/products > deployed_products.json
@@ -59,7 +60,7 @@ function configure_uaa_access {
   UAA_ADMIN_SECRET="$(jq -r .credential.value.secret pks_uaa_management.json)"
 
   echo -e "\n${green}Requesting token from PKS API UAA server...${reset}"
-  uaac token client get admin -s $UAA_ADMIN_SECRET
+  uaa get-client-credentials-token admin -s $UAA_ADMIN_SECRET
 
   rm deployed_products.json pks_uaa_management.json
 
@@ -72,27 +73,32 @@ function create-pks-user {
   read USERNAME
   echo -e "\n${green}Enter Password, followed by [ENTER]:${reset}"
   read PASSWORD
+  echo -e "\n${green}Enter Firstname, followed by [ENTER]:${reset}"
+  read FIRSTNAME
+  echo -e "\n${green}Enter Lastname, followed by [ENTER]:${reset}"
+  read LASTNAME
   echo -e "\n${green}Enter Email, followed by [ENTER]:${reset}"
   read EMAIL
   echo -e "\n${green}Creating user $USERNAME...${reset}"
-  uaac user add $USERNAME --emails $EMAIL -p $PASSWORD && sleep 5
+  uaa create-user $USERNAME --email $EMAIL -p $PASSWORD --givenName $FIRSTNAME --familyName $LASTNAME && sleep 5
 
   echo -e "\n${green}Granting PKS cluster admin & manage access to $USERNAME...${reset}"
-  uaac member add pks.clusters.admin $USERNAME && uaac member add pks.clusters.manage $USERNAME
+  uaa add-member pks.clusters.admin $USERNAME && uaa add-member pks.clusters.manage $USERNAME
 
 }
 
 function login-pks {
   check_dep #Check env variables
 
-  OPSMAN_CA_CERT=/tmp/opsman_ca_cert.pem
+  PKS_API_CA_CERT=/tmp/pks_api_ca_cert.pem
+  echo quit | openssl s_client -showcerts -connect $PKS_API:9021 </dev/null 2>/dev/null | openssl x509 -outform PEM > $PKS_API_CA_CERT
 
   echo -e "\n${green}Enter Username, followed by [ENTER]:${reset}"
   read USERNAME
   echo -e "\n${green}Enter Password, followed by [ENTER]:${reset}"
   read PASSWORD
 
-  pks login -a $PKS_API:9021 -u $USERNAME -p $PASSWORD --ca-cert $OPSMAN_CA_CERT
+  pks login -a $PKS_API:9021 -u $USERNAME -p $PASSWORD -k
 }
 
 operation=$1
