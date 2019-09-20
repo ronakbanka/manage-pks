@@ -18,7 +18,9 @@ You need:
 * [jq](https://stedolan.github.io/jq/download/)
 
 ## PKS tile plan configuration
-Enable PodSecuritypolicy Admission plugin in your PKS plan
+If you want to use Pod Security Policy with your PKS clusters, Enable PodSecuritypolicy Admission plugin in your PKS plan. **Not a hard requirement for `manage-pks` scripts**
+
+Pod security policy is required, if using `/utils/istio` script in this project to install Istio.
 
 ![](../images/pks-enable-psp.png)
 
