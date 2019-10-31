@@ -55,18 +55,20 @@ function provision_cluster {
   gcloud compute addresses create $LB_NAME --region=$CLUSTER_REGION
   CLUSTER_IP=$(gcloud compute addresses describe $LB_NAME --region=$CLUSTER_REGION --format="value(address)")
 
-  setup_dns_record $managed_zone $external_hostname $CLUSTER_IP
+  dns_record add $managed_zone $external_hostname $CLUSTER_IP
 
   echo -e "\nCreating PKS cluster $CLUSTER_NAME with external hostname ${external_hostname}"
   pks create-cluster $CLUSTER_NAME --external-hostname $external_hostname -p $CLUSTER_PLAN
 }
 
 
-function setup_dns_record {
+function dns_record {
   [[ -e transaction.yaml ]] && rm transaction.yaml
-  managed_zone=$1
-  external_hostname=$2
-  new_ip=$3
+  
+  action=$1
+  managed_zone=$2
+  external_hostname=$3
+  new_ip=$4
   function dns-txn {
     op=$1; shift
     gcloud dns record-sets transaction $op --zone=$managed_zone $*
@@ -74,12 +76,17 @@ function setup_dns_record {
   read -r old_ip ttl type <<<$(gcloud dns record-sets list --zone=${managed_zone} --filter="name=${external_hostname}. AND type=A" --format='table[no-heading](DATA,ttl,type)')
   dns-txn start
 
-  if [[ ! -z $old_ip ]] 
+  if [[ ! -z $old_ip ]] || [[ $action == "remove" ]]
   then
       echo Removing exsting record $managed_zone/$external_hostname -\> $old_ip
       dns-txn remove $old_ip --name=${external_hostname}. --type $type --ttl $ttl
   fi
-  dns-txn add $new_ip --name=${external_hostname}. --ttl=300 --type=A
+
+  if [[ $action == "add" ]]
+  then
+    echo Adding record $managed_zone/$external_hostname -\> $new_ip
+    dns-txn add $new_ip --name=${external_hostname}. --ttl=300 --type=A
+  fi
   dns-txn execute
 }
 
@@ -177,6 +184,10 @@ function gcp_cleanup {
   CLUSTER_REGION=$(gcloud config list --format="value(compute.region)")
   CLUSTER_UUID=$(pks cluster $CLUSTER_NAME --json | jq -r .uuid)
   CLUSTER_IP=$(gcloud compute addresses describe $LB_NAME --region=$CLUSTER_REGION --format="value(address)")
+  external_hostname=$(pks cluster $CLUSTER_NAME --json | jq -r .parameters.kubernetes_master_host)
+  zonedomain=${external_hostname#*-k8s.}
+  
+  managed_zone=$(gcloud dns managed-zones list --filter=dnsName:$zonedomain --format="value(name)")
 
   echo "Deleting firewall rule"
   gcloud compute firewall-rules delete $CLUSTER_NAME-fw-master-access --quiet
@@ -189,6 +200,9 @@ function gcp_cleanup {
 
   echo "Releasing public IP"
   gcloud compute addresses delete $LB_NAME --region=$CLUSTER_REGION --quiet
+
+  echo "Removing DNS record"
+  dns_record remove $managed_zone $external_hostname 
 
   echo -e "\n${green}GCP Cleanup complete, you can delete your cluster with: ${reset}${red}pks delete-cluster $CLUSTER_NAME ${reset}"
 }
