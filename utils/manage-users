@@ -48,7 +48,7 @@ function configure_uaa_access {
 
 
   echo -e "\n${green}Targeting PKS Api UAA...${reset}"
-  uaa target https://$PKS_API:8443
+  uaa target https://$PKS_API:8443 -k
 
   echo -e "\n${green}Fetch PKS deployment name...${reset}"
   om -k curl -s -p /api/v0/deployed/products > deployed_products.json
